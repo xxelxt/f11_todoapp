@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/todo.dart';
 import '../services/api_services.dart';
-import '../pages/add_edit_todo_list.dart';
+import 'add_edit_todo_list.dart';
 
 class TodoListPage extends StatefulWidget {
   @override
@@ -12,6 +12,7 @@ class _TodoListPageState extends State<TodoListPage> {
   final ApiService apiService = ApiService();
   List<Todo> todos = [];
   bool isLoading = true;
+  int currentMaxId = 200;
 
   @override
   void initState() {
@@ -23,7 +24,8 @@ class _TodoListPageState extends State<TodoListPage> {
     try {
       final fetchedTodos = await apiService.fetchTodos();
       setState(() {
-        todos = fetchedTodos;
+        // Chỉ lấy 10 todo đầu tiên
+        todos = fetchedTodos.take(10).toList();
         isLoading = false;
       });
     } catch (e) {
@@ -31,18 +33,17 @@ class _TodoListPageState extends State<TodoListPage> {
     }
   }
 
-  void toggleTodoCompletion(Todo todo) async {
-    final updatedTodo = Todo(
-      id: todo.id,
-      title: todo.title,
-      completed: !todo.completed,
-    );
-    await apiService.updateTodo(updatedTodo);
-
+  void addTodoLocally(Todo todo) {
     setState(() {
-      final index = todos.indexWhere((element) => element.id == todo.id);
+      todos.add(todo); // Thêm todo mới vào danh sách
+    });
+  }
+
+  void updateTodoLocally(Todo updatedTodo) {
+    setState(() {
+      final index = todos.indexWhere((todo) => todo.id == updatedTodo.id);
       if (index != -1) {
-        todos[index] = updatedTodo;
+        todos[index] = updatedTodo; // Cập nhật todo ở đúng vị trí
       }
     });
   }
@@ -61,54 +62,68 @@ class _TodoListPageState extends State<TodoListPage> {
       body: isLoading
           ? Center(child: CircularProgressIndicator())
           : ListView.builder(
-        itemCount: todos.length,
-        itemBuilder: (context, index) {
-          final todo = todos[index];
-          return ListTile(
-            leading: Checkbox(
-              value: todo.completed,
-              onChanged: (_) => toggleTodoCompletion(todo),
+              itemCount: todos.length,
+              itemBuilder: (context, index) {
+                final todo = todos[index];
+                return ListTile(
+                    leading: Checkbox(
+                      value: todo.completed,
+                      onChanged: (_) => toggleTodoCompletion(todo),
+                    ),
+                    title: Text(
+                      todo.title,
+                      style: TextStyle(
+                        decoration: todo.completed
+                            ? TextDecoration.lineThrough
+                            : TextDecoration.none,
+                      ),
+                    ),
+                    trailing: IconButton(
+                      icon: Icon(Icons.delete, color: Colors.red),
+                      onPressed: () => deleteTodoItem(todo.id),
+                    ),
+                    onTap: () async {
+                      final updatedTodo = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AddEditTodoPage(todo: todo),
+                        ),
+                      );
+                      if (updatedTodo != null) {
+                        updateTodoLocally(updatedTodo); // Cập nhật todo cục bộ
+                      }
+                    });
+              },
             ),
-            title: Text(
-              todo.title,
-              style: TextStyle(
-                decoration: todo.completed
-                    ? TextDecoration.lineThrough
-                    : TextDecoration.none,
-              ),
-            ),
-            trailing: IconButton(
-              icon: Icon(Icons.delete, color: Colors.red),
-              onPressed: () => deleteTodoItem(todo.id),
-            ),
-            onTap: () async {
-              final result = await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => AddEditTodoPage(todo: todo),
-                ),
-              );
-              if (result == true) {
-                fetchTodos();
-              }
-            },
-          );
-        },
-      ),
       floatingActionButton: FloatingActionButton(
         child: Icon(Icons.add),
         onPressed: () async {
-          final result = await Navigator.push(
+          final newTodo = await Navigator.push(
             context,
             MaterialPageRoute(
               builder: (context) => AddEditTodoPage(),
             ),
           );
-          if (result == true) {
-            fetchTodos();
+          if (newTodo != null) {
+            addTodoLocally(newTodo); // Thêm todo mới vào danh sách cục bộ
           }
         },
       ),
     );
+  }
+
+  void toggleTodoCompletion(Todo todo) async {
+    final updatedTodo = Todo(
+      id: todo.id,
+      title: todo.title,
+      completed: !todo.completed,
+    );
+
+    try {
+      await apiService.updateTodo(updatedTodo);
+      updateTodoLocally(updatedTodo); // Cập nhật todo cục bộ sau khi đã cập nhật trên server
+    } catch (e) {
+      print('Error updating todo: $e');
+    }
   }
 }
